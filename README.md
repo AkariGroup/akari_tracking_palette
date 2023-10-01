@@ -10,9 +10,6 @@
 `source venv/bin/activate`  
 `pip install -r requirements.txt`  
 
-## サーバの起動
-`python3 server.py`  
-
 ## 使い方
 ・counterの起動
 `python3 tracking_counter.py`  
@@ -30,4 +27,7 @@
 
 ## saveしたjsonでの起動
 ・下記でsaveしたjsonを元にcounterの起動が可能
-`python3 tracking_counter.py`  
+`python3 tracking_counter.py --roi_path "saveしたroi_jsonのパス"`  
+サンプルで起動する場合は下記を実行  
+`python3 tracking_counter.py --roi_path roi_json/sample/sample.json`  
+
