@@ -2,6 +2,9 @@
 
 俯瞰の位置情報のパレット上に図形を書くことで、監視エリアを指定できるアプリ
 
+## submoduleの更新
+`git submodule update --init --recursive`  
+
 ## 仮想環境の作成
 `python -m venv venv`  
 `source venv/bin/activate`  
