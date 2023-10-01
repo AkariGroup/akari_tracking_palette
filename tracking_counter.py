@@ -78,6 +78,12 @@ def main() -> None:
         help="Convert object pos from camera coordinate to robot coordinate",
         action="store_true",
     )
+    parser.add_argument(
+        "--roi_path",
+        help="Roi json file path",
+        default=None,
+        type=str,
+    )
     args = parser.parse_args()
 
     oakd_palette = OakdTrackingYoloWithPalette(
@@ -87,7 +93,7 @@ def main() -> None:
     akari = AkariClient()
     joints = akari.joints
     trackings = None
-    roi_palette = RoiPalette(fov)
+    roi_palette = RoiPalette(fov,roi_path=args.roi_path)
     m5 = akari.m5stack
     m5.set_display_text(
         text="人数カウンタ",
@@ -161,8 +167,10 @@ def main() -> None:
             roi_palette.set_mode("rectangle")
         elif key == ord("c"):
             roi_palette.set_mode("circle")
-        elif key == ord("d"):  # 'd'キーを押すと図形をクリア
+        elif key == ord("d"):
             roi_palette.reset()
+        elif key == ord("s"):
+            roi_palette.save_roi()
         elif key == ord("0"):
             roi_palette.set_roi_id(0)
         elif key == ord("1"):

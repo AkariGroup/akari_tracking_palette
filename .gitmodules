@@ -1,3 +1,4 @@
-[submodule "akari_yolo_inference"]
+
+[submodule "lib/akari_yolo_inference"]
 	path = lib/akari_yolo_inference
 	url = git@github.com:AkariGroup/akari_yolo_inference.git

@@ -1,13 +1,17 @@
 import cv2
+import json
 import numpy as np
 import math
 import time
-from typing import Any,List, Tuple
+import os
+from typing import Any, List, Tuple, Optional
+from datetime import datetime
 from turfpy.measurement import boolean_point_in_polygon
 from geojson import Point, Polygon, Feature
 from .akari_yolo_inference.oakd_yolo.oakd_tracking_yolo import OakdTrackingYolo
 
 DISPLAY_WINDOW_SIZE_RATE = 2.0
+
 
 class RectRoi(object):
     def __init__(self, p1: Tuple[float, float], p2: Tuple[float, float]):
@@ -60,7 +64,12 @@ class RoiList(object):
 
 
 class RoiPalette(object):
-    def __init__(self, fov: float, show_labels: bool = False) -> None:
+    def __init__(
+        self,
+        fov: float = 180,
+        roi_path: Optional[str] = None,
+        show_labels: bool = False,
+    ) -> None:
         self.MAX_ROI_ID = 3
         self.ROI_COLOR = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
         self.roi: List[RoiList] = [RoiList() for _ in range(self.MAX_ROI_ID)]
@@ -79,6 +88,55 @@ class RoiPalette(object):
         self.window_name = "palette"
         self.tracklets: Any = None
         self.bird_eye_frame = self.create_bird_frame()
+        if roi_path is not None:
+            self.load_roi(roi_path)
+
+    def load_roi(self, path: str) -> None:
+        if not os.path.isfile(path):
+            print(f"ROI setting file path {path} is not available.")
+            return
+        with open(path, "r") as roi_json:
+            roi_data = json.load(roi_json)
+            for i in range(0, self.MAX_ROI_ID):
+                id = str(i)
+                if id in roi_data:
+                    if "rectangle" in roi_data[id]:
+                        for rect in roi_data[id]["rectangle"]:
+                            try:
+                                self.roi[i].add_rect(rect["p1"], rect["p2"])
+                            except BaseException:
+                                print(f"ROI file id:{id} rect type wrong")
+                    if "circle" in roi_data[id]:
+                        for circle in roi_data[id]["circle"]:
+                            try:
+                                self.roi[i].add_circle(circle["p1"], circle["radius"])
+                            except BaseException:
+                                print(f"ROI file id:{id} circle type wrong")
+
+    def save_roi(self) -> None:
+        current_time = datetime.now()
+        file_name = current_time.strftime("%Y%m%d_%H%M%S.json")
+        file_path = "roi_json/" + file_name
+        roi_dict = {}
+        for i in range(0, self.MAX_ROI_ID):
+            roi_dict[str(i)] ={}
+            if(self.roi[i].rect):
+                roi_dict[str(i)]["rectangle"] =[]
+                for rect in self.roi[i].rect:
+                    cur_roi = {}
+                    cur_roi["p1"] = rect.p1
+                    cur_roi["p2"] = rect.p2
+                    roi_dict[str(i)]["rectangle"].append(cur_roi)
+            if(self.roi[i].circle):
+                roi_dict[str(i)]["circle"] =[]
+                for circle in self.roi[i].circle:
+                    cur_roi = {}
+                    cur_roi["p1"] = circle.p1
+                    cur_roi["radius"] = circle.radius
+                    roi_dict[str(i)]["circle"].append(cur_roi)
+        with open(file_path, 'w') as json_file:
+            json.dump(roi_dict, json_file, indent=4)
+
 
     def set_mode(self, mode: str):
         if mode == "rectangle" or mode == "circle":
@@ -371,7 +429,7 @@ class OakdTrackingYoloWithPalette(OakdTrackingYolo):
                         self.text.put_text(
                             frame, tracklet.status.name, (x1 + 10, y1 + 70)
                         )
-                        color = (168,87,167)
+                        color = (168, 87, 167)
                         for i in range(0, 3):
                             if roi_palette.is_point_in_roi(
                                 i,
@@ -381,7 +439,7 @@ class OakdTrackingYoloWithPalette(OakdTrackingYolo):
                                 ),
                             ):
                                 color = roi_palette.ROI_COLOR[i]
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), color,thickness=3)
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness=3)
                         if tracklet.spatialCoordinates.z != 0:
                             self.text.put_text(
                                 frame,
