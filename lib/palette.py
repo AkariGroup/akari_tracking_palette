@@ -344,7 +344,7 @@ class RoiPalette(object):
         pos_i = self.point_to_pos((self.cur_ix, self.cur_iy))
         cv2.putText(
             frame,
-            f"x: {pos_i[0]/1000:.2f}m, y: {pos_i[1]/1000:.2f}m",
+            f"x: {pos_i[0]/1000:.2f}m, z: {pos_i[1]/1000:.2f}m",
             (0, frame.shape[1] - 30),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
