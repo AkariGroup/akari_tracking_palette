@@ -119,26 +119,25 @@ class RoiPalette(object):
         file_path = "roi_json/" + file_name
         roi_dict = {}
         for i in range(0, self.MAX_ROI_ID):
-            roi_dict[str(i)] ={}
-            if(self.roi[i].rect):
-                roi_dict[str(i)]["rectangle"] =[]
+            roi_dict[str(i)] = {}
+            if self.roi[i].rect:
+                roi_dict[str(i)]["rectangle"] = []
                 for rect in self.roi[i].rect:
                     cur_roi = {}
                     cur_roi["p1"] = rect.p1
                     cur_roi["p2"] = rect.p2
                     roi_dict[str(i)]["rectangle"].append(cur_roi)
-            if(self.roi[i].circle):
-                roi_dict[str(i)]["circle"] =[]
+            if self.roi[i].circle:
+                roi_dict[str(i)]["circle"] = []
                 for circle in self.roi[i].circle:
                     cur_roi = {}
                     cur_roi["p1"] = circle.p1
                     cur_roi["radius"] = circle.radius
                     roi_dict[str(i)]["circle"].append(cur_roi)
-        with open(file_path, 'w') as json_file:
+        with open(file_path, "w") as json_file:
             json.dump(roi_dict, json_file, indent=4)
 
-
-    def set_mode(self, mode: str):
+    def set_mode(self, mode: str) -> bool:
         if mode == "rectangle" or mode == "circle":
             self.mode = mode
             return True
@@ -150,10 +149,10 @@ class RoiPalette(object):
             return True
         return False
 
-    def set_tracklets(self, tracklets):
+    def set_tracklets(self, tracklets) -> None:
         self.tracklets = tracklets
 
-    def reset(self):
+    def reset(self) -> None:
         for roi in self.roi:
             roi.reset()
 
@@ -268,13 +267,13 @@ class RoiPalette(object):
                         (pointX - 30, pointY + 5),
                         cv2.FONT_HERSHEY_TRIPLEX,
                         0.5,
-                        (0, 255, 0),
+                        (0, 241, 255),
                     )
                 cv2.circle(
                     frame,
                     pos,
                     2,
-                    (0, 255, 0),
+                    (0, 241, 255),
                     thickness=5,
                     lineType=8,
                     shift=0,
@@ -286,7 +285,7 @@ class RoiPalette(object):
                     self.pos_to_point(rect.p1),
                     self.pos_to_point(rect.p2),
                     self.ROI_COLOR[roi_id],
-                    1,
+                    thickness=2,
                 )
             for circle in self.roi[roi_id].circle:
                 cv2.circle(
@@ -294,11 +293,11 @@ class RoiPalette(object):
                     self.pos_to_point(circle.p1),
                     int(self.pos_diff_to_point_diff(circle.radius)),
                     self.ROI_COLOR[roi_id],
-                    1,
+                    thickness=2,
                 )
         return frame
 
-    def draw_frame(self):
+    def draw_frame(self) -> None:
         frame = self.bird_eye_frame.copy()
         frame = self.add_tracklet_to_frame(frame)
         if self.drawing:
@@ -308,7 +307,7 @@ class RoiPalette(object):
                     (self.ix, self.iy),
                     (self.cur_ix, self.cur_iy),
                     self.ROI_COLOR[self.cur_roi_id],
-                    2,
+                    thickness=2,
                 )
             elif self.mode == "circle":
                 cv2.circle(
@@ -320,12 +319,22 @@ class RoiPalette(object):
                         )
                     ),
                     self.ROI_COLOR[self.cur_roi_id],
-                    2,
+                    thickness=2,
                 )
         cv2.putText(
             frame,
             f"mode: {self.mode}",
-            (0, frame.shape[1] - 90),
+            (0, frame.shape[1] - 50),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (255, 255, 255),
+            2,
+        )
+
+        cv2.putText(
+            frame,
+            f"roi id: ",
+            (0, frame.shape[1] - 30),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
             (255, 255, 255),
@@ -333,11 +342,11 @@ class RoiPalette(object):
         )
         cv2.putText(
             frame,
-            f"roi id: {self.cur_roi_id}",
-            (0, frame.shape[1] - 60),
+            f"{self.cur_roi_id}",
+            (60, frame.shape[1] - 30),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
-            (255, 255, 255),
+            self.ROI_COLOR[self.cur_roi_id],
             2,
         )
         # マウスの現在座標を表示
@@ -345,7 +354,7 @@ class RoiPalette(object):
         cv2.putText(
             frame,
             f"x: {pos_i[0]/1000:.2f}m, z: {pos_i[1]/1000:.2f}m",
-            (0, frame.shape[1] - 30),
+            (0, frame.shape[1] - 10),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
             (255, 255, 255),
@@ -354,7 +363,7 @@ class RoiPalette(object):
         cv2.imshow("palette", frame)
 
     # マウスのコールバック関数
-    def draw_shape(self, event, x, y, flags, param):
+    def draw_shape(self, event, x, y, flags, param) -> None:
         self.cur_ix = x
         self.cur_iy = y
         if event == cv2.EVENT_LBUTTONDOWN:

@@ -87,13 +87,18 @@ def main() -> None:
     args = parser.parse_args()
 
     oakd_palette = OakdTrackingYoloWithPalette(
-        args.config, args.model, args.fps, fov, args.display_camera
+        config_path=args.config,
+        model_path=args.model,
+        fps=args.fps,
+        fov=fov,
+        cam_debug=args.display_camera,
+        robot_coordinate=args.robot_coordinate,
+        track_targets=[0],
     )
-
     akari = AkariClient()
     joints = akari.joints
     trackings = None
-    roi_palette = RoiPalette(fov,roi_path=args.roi_path)
+    roi_palette = RoiPalette(fov, roi_path=args.roi_path)
     m5 = akari.m5stack
     m5.set_display_text(
         text="人数カウンタ",
@@ -104,10 +109,29 @@ def main() -> None:
         sync=True,
     )
     m5.set_display_text(
-        text="area0  area1  area2",
+        text="area0",
         size=3,
+        pos_x=10,
         pos_y=70,
-        text_color=Colors.BLACK,
+        text_color=Colors.BLUE,
+        refresh=False,
+        sync=True,
+    )
+    m5.set_display_text(
+        text="area1",
+        size=3,
+        pos_x=Positions.CENTER,
+        pos_y=70,
+        text_color=Colors.GREEN,
+        refresh=False,
+        sync=True,
+    )
+    m5.set_display_text(
+        text="area2",
+        size=3,
+        pos_x=220,
+        pos_y=70,
+        text_color=Colors.RED,
         refresh=False,
         sync=True,
     )
@@ -156,7 +180,7 @@ def main() -> None:
                 text=f" {count[0]}  {count[1]}  {count[2]} \n",
                 size=10,
                 pos_y=120,
-                text_color=Colors.BLUE,
+                text_color=Colors.NAVY,
                 refresh=False,
                 sync=False,
             )
