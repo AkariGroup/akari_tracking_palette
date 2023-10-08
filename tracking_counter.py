@@ -14,7 +14,7 @@ from lib.palette import RoiPalette, OakdTrackingYoloWithPalette
 
 # OAK-D LITEの視野角
 fov = 56.7
-
+POS_DIFF = 0.1
 
 def convert_to_pos_from_akari(pos: Any, pitch: float, yaw: float) -> Any:
     pitch = -1 * pitch
@@ -73,12 +73,6 @@ def main() -> None:
         action="store_true",
     )
     parser.add_argument(
-        "-r",
-        "--robot_coordinate",
-        help="Convert object pos from camera coordinate to robot coordinate",
-        action="store_true",
-    )
-    parser.add_argument(
         "--roi_path",
         help="Roi json file path",
         default=None,
@@ -92,11 +86,14 @@ def main() -> None:
         fps=args.fps,
         fov=fov,
         cam_debug=args.display_camera,
-        robot_coordinate=args.robot_coordinate,
+        robot_coordinate=True,
         track_targets=[0],
     )
     akari = AkariClient()
     joints = akari.joints
+    joints.enable_all_servo()
+    joints.set_joint_accelerations(pan=20,tilt=20)
+    joints.set_joint_velocities(pan=3,tilt=3)
     trackings = None
     roi_palette = RoiPalette(fov, roi_path=args.roi_path)
     m5 = akari.m5stack
@@ -139,26 +136,7 @@ def main() -> None:
         frame = None
         detections = []
         frame, detections, tracklets = oakd_palette.get_frame()
-        if args.robot_coordinate:
-            head_pos = joints.get_joint_positions()
-            pitch = head_pos["tilt"]
-            yaw = head_pos["pan"]
         if frame is not None:
-            if args.robot_coordinate:
-                for detection in detections:
-                    converted_pos = convert_to_pos_from_akari(
-                        detection.spatialCoordinates, pitch, yaw
-                    )
-                    detection.spatialCoordinates.x = converted_pos[0][0]
-                    detection.spatialCoordinates.y = converted_pos[1][0]
-                    detection.spatialCoordinates.z = converted_pos[2][0]
-                for tracklet in tracklets:
-                    converted_pos = convert_to_pos_from_akari(
-                        tracklet.spatialCoordinates, pitch, yaw
-                    )
-                    tracklet.spatialCoordinates.x = converted_pos[0][0]
-                    tracklet.spatialCoordinates.y = converted_pos[1][0]
-                    tracklet.spatialCoordinates.z = converted_pos[2][0]
             roi_palette.set_tracklets(tracklets)
             roi_palette.draw_frame()
             oakd_palette.display_frame("nn", frame, tracklets, roi_palette)
@@ -184,7 +162,9 @@ def main() -> None:
                 refresh=False,
                 sync=False,
             )
-        key = cv2.waitKey(10)
+        key = cv2.waitKeyEx(10)
+        pos = joints.get_joint_positions()
+        changed = False
         if key == ord("q"):
             break
         elif key == ord("r"):
@@ -201,6 +181,20 @@ def main() -> None:
             roi_palette.set_roi_id(1)
         elif key == ord("2"):
             roi_palette.set_roi_id(2)
+        if key ==ord("l"):
+            pos["pan"] += POS_DIFF
+            changed= True
+        if key == ord("j"):
+            pos["pan"] -= POS_DIFF
+            changed= True
+        if key == ord("m"):
+            pos["tilt"] -= POS_DIFF
+            changed= True
+        if key == ord("k"):
+            pos["tilt"] += POS_DIFF
+            changed= True
+        if changed:
+            joints.move_joint_positions(pan=pos["pan"],tilt=pos["tilt"],sync=False)
 
 
 if __name__ == "__main__":

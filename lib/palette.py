@@ -8,6 +8,7 @@ from typing import Any, List, Tuple, Optional
 from datetime import datetime
 from turfpy.measurement import boolean_point_in_polygon
 from geojson import Point, Polygon, Feature
+from akari_client import AkariClient
 from .akari_yolo_inference.oakd_yolo.oakd_tracking_yolo import OakdTrackingYolo
 
 DISPLAY_WINDOW_SIZE_RATE = 2.0
@@ -82,11 +83,15 @@ class RoiPalette(object):
         self.cur_roi_id = 0
         self.fov = fov
         self.show_labels = False
-        self.frame_size = 480
-        self.RANGE = 10000
+        self.FRAME_HEIGHT = 480
+        self.FRAME_WIDTH = 640
+        self.Z_RANGE = 10000
+        self.X_RANGE = self.Z_RANGE *self.FRAME_WIDTH/self.FRAME_HEIGHT
         self.LATTICE_INTERVAL = 2000
         self.window_name = "palette"
         self.tracklets: Any = None
+        akari = AkariClient()
+        self.joints = akari.joints
         self.bird_eye_frame = self.create_bird_frame()
         if roi_path is not None:
             self.load_roi(roi_path)
@@ -157,44 +162,30 @@ class RoiPalette(object):
             roi.reset()
 
     def point_to_pos(self, point: Tuple[int, int]) -> Tuple[float, float]:
-        pos_x = (point[0] - self.frame_size / 2) / self.frame_size * (self.RANGE)
-        pos_z = (-point[1] + self.frame_size) / self.frame_size * (self.RANGE)
+        pos_x =  -1 *( point[0] - self.FRAME_WIDTH/2) / self.FRAME_WIDTH * (self.X_RANGE)
+        pos_z = (-point[1] + self.FRAME_HEIGHT) / self.FRAME_HEIGHT * (self.Z_RANGE)
         return (pos_x, pos_z)
 
     def point_diff_to_pos_diff(self, diff: float) -> float:
-        return diff / self.frame_size * self.RANGE
+        return diff / self.FRAME_HEIGHT * self.Z_RANGE
 
     def pos_diff_to_point_diff(self, diff: float) -> float:
-        return diff / self.RANGE * self.frame_size
+        return diff / self.Z_RANGE * self.FRAME_HEIGHT
 
     def pos_to_point(self, pos: Tuple[float, float]) -> Tuple[int, int]:
-        point_x = int(pos[0] / self.RANGE * self.frame_size + self.frame_size / 2)
-        point_y = self.frame_size - int(pos[1] / self.RANGE * self.frame_size)
+        point_x = int( -1 * pos[0] / self.X_RANGE * self.FRAME_WIDTH + self.FRAME_WIDTH/2)
+        point_y = self.FRAME_HEIGHT - int(pos[1] / self.Z_RANGE * self.FRAME_HEIGHT)
         return (point_x, point_y)
 
     def create_bird_frame(self) -> np.ndarray:
         # ウィンドウを作成
         cv2.namedWindow(self.window_name)
         cv2.setMouseCallback(self.window_name, self.draw_shape)
-        frame = np.zeros((self.frame_size, self.frame_size, 3), np.uint8)
-        cv2.rectangle(
-            frame,
-            (0, self.frame_size - 20),
-            (frame.shape[1], frame.shape[0]),
-            (70, 70, 70),
-            -1,
-        )
-        cv2.rectangle(
-            frame,
-            (0, self.frame_size - 20),
-            (frame.shape[1], frame.shape[0]),
-            (70, 70, 70),
-            -1,
-        )
+        frame = np.zeros((self.FRAME_HEIGHT, self.FRAME_WIDTH, 3), np.uint8)
         center = int(frame.shape[1] / 2)
-        # 1m単位の格子線
+        # 2m単位の格子線
         lattice_x = center
-        while lattice_x < frame.shape[0]:
+        while lattice_x < frame.shape[1]:
             cv2.line(
                 frame,
                 (lattice_x, 0),
@@ -204,7 +195,7 @@ class RoiPalette(object):
                 lineType=cv2.LINE_8,
                 shift=0,
             )
-            lattice_x += int(self.frame_size / self.RANGE * self.LATTICE_INTERVAL)
+            lattice_x += int(self.FRAME_WIDTH / self.X_RANGE * self.LATTICE_INTERVAL)
         lattice_x = center
         while lattice_x > 0:
             cv2.line(
@@ -216,43 +207,22 @@ class RoiPalette(object):
                 lineType=cv2.LINE_8,
                 shift=0,
             )
-            lattice_x -= int(self.frame_size / self.RANGE * self.LATTICE_INTERVAL)
-        lattice_y = frame.shape[1]
+            lattice_x -= int(self.FRAME_WIDTH / self.X_RANGE * self.LATTICE_INTERVAL)
+        lattice_y = frame.shape[0]
         while lattice_y > 0:
             cv2.line(
                 frame,
                 (0, lattice_y),
-                (frame.shape[0], lattice_y),
+                (self.FRAME_WIDTH, lattice_y),
                 (255, 255, 255),
                 thickness=1,
                 lineType=cv2.LINE_8,
                 shift=0,
             )
-            lattice_y -= int(self.frame_size / self.RANGE * self.LATTICE_INTERVAL)
-        lattice_x = center
-        alpha = (180 - self.fov) / 2
-        max_p = frame.shape[0] - int(math.tan(math.radians(alpha)) * center)
-        fov_cnt = np.array(
-            [
-                (0, frame.shape[0]),
-                (frame.shape[1], frame.shape[0]),
-                (frame.shape[1], max_p),
-                (center, frame.shape[0]),
-                (0, max_p),
-                (0, frame.shape[0]),
-            ]
-        )
-        cv2.fillPoly(frame, [fov_cnt], color=(70, 70, 70))
-        cv2.rectangle(
-            frame,
-            (center - 10, self.frame_size - 20),
-            (center + 10, frame.shape[0]),
-            (0, 241, 255),
-            -1,
-        )
+            lattice_y -= int(self.FRAME_HEIGHT / self.Z_RANGE * self.LATTICE_INTERVAL)
         return frame
 
-    def add_tracklet_to_frame(self, frame) -> np.ndarray:
+    def add_tracklet_to_frame(self, frame:np.ndarray) -> np.ndarray:
         if self.tracklets is None:
             return frame
         for tracklet in self.tracklets:
@@ -297,8 +267,70 @@ class RoiPalette(object):
                 )
         return frame
 
+    def draw_fov(self,frame:np.ndarray) -> np.ndarray:
+        center = int(frame.shape[1] / 2)
+        alpha = self.fov / 2
+        yaw = self.joints.get_joint_positions()["pan"]
+        # 正方向fovの境界描画
+        ang_p = math.radians(alpha) + yaw
+        if ang_p >= 1.57:
+            pass
+        if 0.464 < ang_p < 1.57:
+            fov_cnt = np.array([
+                (center, frame.shape[0]),
+                (frame.shape[1], frame.shape[0]),
+                (
+                    frame.shape[1],
+                    int(frame.shape[0] - (frame.shape[1] / (2 * math.tan(ang_p)))),
+                ),
+                (center, frame.shape[0]),
+            ])
+            cv2.fillPoly(frame, [fov_cnt], color=(70, 70, 70))
+        else:
+            fov_cnt = np.array([
+                (center, frame.shape[0]),
+                (frame.shape[1], frame.shape[0]),
+                (frame.shape[1], 0),
+                (center + int(frame.shape[0] * math.tan(ang_p)), 0),
+                (center, frame.shape[0]),
+            ])
+            cv2.fillPoly(frame, [fov_cnt], color=(70, 70, 70))
+        # 負方向fovの境界描画
+        ang_n = -math.radians(alpha) + yaw
+        if ang_n <= -1.57:
+            pass
+        if -0.464 > ang_n > -1.57:
+            fov_cnt = np.array([
+                (center, frame.shape[0]),
+                (0, frame.shape[0]),
+                (
+                    0,
+                    int(frame.shape[0] + (frame.shape[1] / (2 * math.tan(ang_n)))),
+                ),
+                (center, frame.shape[0]),
+            ])
+            cv2.fillPoly(frame, [fov_cnt], color=(70, 70, 70))
+        else:
+            fov_cnt = np.array([
+                (center, frame.shape[0]),
+                (0, frame.shape[0]),
+                (0, 0),
+                (center + int(frame.shape[0] * math.tan(ang_n)), 0),
+                (center, frame.shape[0]),
+            ])
+            cv2.fillPoly(frame, [fov_cnt], color=(70, 70, 70))
+        # ロボット向きの描画
+        robot_tri = np.array([
+            (center, frame.shape[0]),
+            (int(center + 20 * math.sin(ang_p)), int(frame.shape[0] - 20 * math.cos(ang_p))),
+            (int(center + 20 * math.sin(ang_n)), int(frame.shape[0] - 20 * math.cos(ang_n)))
+        ])
+        cv2.fillPoly(frame, [robot_tri], color=(0, 241, 255))
+        return frame
+
     def draw_frame(self) -> None:
         frame = self.bird_eye_frame.copy()
+        frame = self.draw_fov(frame)
         frame = self.add_tracklet_to_frame(frame)
         if self.drawing:
             if self.mode == "rectangle":
@@ -321,10 +353,20 @@ class RoiPalette(object):
                     self.ROI_COLOR[self.cur_roi_id],
                     thickness=2,
                 )
+        pos = self.joints.get_joint_positions()
+        cv2.putText(
+            frame,
+            f"pan: {math.degrees(pos['pan']):.1f}, tilt: {math.degrees(pos['tilt']):.1f}",
+            (0, frame.shape[0] - 70),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (255, 255, 255),
+            2,
+        )
         cv2.putText(
             frame,
             f"mode: {self.mode}",
-            (0, frame.shape[1] - 50),
+            (0, frame.shape[0] - 50),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
             (255, 255, 255),
@@ -334,7 +376,7 @@ class RoiPalette(object):
         cv2.putText(
             frame,
             f"roi id: ",
-            (0, frame.shape[1] - 30),
+            (0, frame.shape[0] - 30),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
             (255, 255, 255),
@@ -343,7 +385,7 @@ class RoiPalette(object):
         cv2.putText(
             frame,
             f"{self.cur_roi_id}",
-            (60, frame.shape[1] - 30),
+            (60, frame.shape[0] - 30),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
             self.ROI_COLOR[self.cur_roi_id],
@@ -354,7 +396,7 @@ class RoiPalette(object):
         cv2.putText(
             frame,
             f"x: {pos_i[0]/1000:.2f}m, z: {pos_i[1]/1000:.2f}m",
-            (0, frame.shape[1] - 10),
+            (0, frame.shape[0] - 10),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
             (255, 255, 255),
