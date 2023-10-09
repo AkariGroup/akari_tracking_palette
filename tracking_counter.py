@@ -14,7 +14,7 @@ from lib.palette import RoiPalette, OakdTrackingYoloWithPalette
 
 # OAK-D LITEの視野角
 fov = 56.7
-POS_DIFF = 0.1
+INPUT_POS_DIFF = 0.05
 
 def convert_to_pos_from_akari(pos: Any, pitch: float, yaw: float) -> Any:
     pitch = -1 * pitch
@@ -79,6 +79,9 @@ def main() -> None:
         type=str,
     )
     args = parser.parse_args()
+    # personのみをtracking対象に指定。他のものをtracking対象にしたい時はここを変更する。
+    # target_listの引数指定をしない場合、すべての認識対象がtracking対象になる。
+    target_list = [0]
 
     oakd_palette = OakdTrackingYoloWithPalette(
         config_path=args.config,
@@ -87,13 +90,14 @@ def main() -> None:
         fov=fov,
         cam_debug=args.display_camera,
         robot_coordinate=True,
-        track_targets=[0],
+        track_targets=target_list,
     )
     akari = AkariClient()
     joints = akari.joints
     joints.enable_all_servo()
     joints.set_joint_accelerations(pan=20,tilt=20)
     joints.set_joint_velocities(pan=3,tilt=3)
+    limit = joints.get_joint_limits()
     trackings = None
     roi_palette = RoiPalette(fov, roi_path=args.roi_path)
     m5 = akari.m5stack
@@ -164,7 +168,7 @@ def main() -> None:
             )
         key = cv2.waitKeyEx(10)
         pos = joints.get_joint_positions()
-        changed = False
+        joint_command = False
         if key == ord("q"):
             break
         elif key == ord("r"):
@@ -181,21 +185,33 @@ def main() -> None:
             roi_palette.set_roi_id(1)
         elif key == ord("2"):
             roi_palette.set_roi_id(2)
-        if key ==ord("l"):
-            pos["pan"] += POS_DIFF
-            changed= True
         if key == ord("j"):
-            pos["pan"] -= POS_DIFF
-            changed= True
+            joint_command = True
+            pos["pan"] = pos["pan"] + INPUT_POS_DIFF
+        if key == ord("l"):
+            joint_command = True
+            pos["pan"] = pos["pan"] - INPUT_POS_DIFF
+        if key == ord("i"):
+            joint_command = True
+            pos["tilt"] = pos["tilt"] + INPUT_POS_DIFF
         if key == ord("m"):
-            pos["tilt"] -= POS_DIFF
-            changed= True
+            joint_command = True
+            pos["tilt"] = pos["tilt"] - INPUT_POS_DIFF
         if key == ord("k"):
-            pos["tilt"] += POS_DIFF
-            changed= True
-        if changed:
-            joints.move_joint_positions(pan=pos["pan"],tilt=pos["tilt"],sync=False)
-
+            joint_command = True
+            pos["pan"] = 0
+            pos["tilt"] = 0
+        # リミット範囲内に収める
+        if pos["pan"] < limit["pan"][0]:
+            pos["pan"] = limit["pan"][0]
+        elif pos["pan"] > limit["pan"][1]:
+            pos["pan"] = limit["pan"][1]
+        if pos["tilt"] < limit["tilt"][0]:
+            pos["tilt"] = limit["tilt"][0]
+        elif pos["tilt"] > limit["tilt"][1]:
+            pos["tilt"] = limit["tilt"][1]
+        if joint_command:
+            joints.move_joint_positions(pan=pos["pan"], tilt=pos["tilt"], sync=False)
 
 if __name__ == "__main__":
     main()
