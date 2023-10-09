@@ -2,3 +2,6 @@
 [submodule "lib/akari_yolo_inference"]
 	path = lib/akari_yolo_inference
 	url = git@github.com:AkariGroup/akari_yolo_inference.git
+[submodule "lib/akari_chatgpt_bot"]
+	path = lib/akari_chatgpt_bot
+	url = https://github.com/AkariGroup/akari_chatgpt_bot.git
