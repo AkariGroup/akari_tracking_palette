@@ -14,7 +14,7 @@ from lib.palette import RoiPalette, OakdTrackingYoloWithPalette
 
 # OAK-D LITEの視野角
 fov = 56.7
-
+INPUT_POS_DIFF = 0.05
 
 def convert_to_pos_from_akari(pos: Any, pitch: float, yaw: float) -> Any:
     pitch = -1 * pitch
@@ -73,18 +73,15 @@ def main() -> None:
         action="store_true",
     )
     parser.add_argument(
-        "-r",
-        "--robot_coordinate",
-        help="Convert object pos from camera coordinate to robot coordinate",
-        action="store_true",
-    )
-    parser.add_argument(
         "--roi_path",
         help="Roi json file path",
         default=None,
         type=str,
     )
     args = parser.parse_args()
+    # personのみをtracking対象に指定。他のものをtracking対象にしたい時はここを変更する。
+    # target_listの引数指定をしない場合、すべての認識対象がtracking対象になる。
+    target_list = [0]
 
     oakd_palette = OakdTrackingYoloWithPalette(
         config_path=args.config,
@@ -92,11 +89,15 @@ def main() -> None:
         fps=args.fps,
         fov=fov,
         cam_debug=args.display_camera,
-        robot_coordinate=args.robot_coordinate,
-        track_targets=[0],
+        robot_coordinate=True,
+        track_targets=target_list,
     )
     akari = AkariClient()
     joints = akari.joints
+    joints.enable_all_servo()
+    joints.set_joint_accelerations(pan=20,tilt=20)
+    joints.set_joint_velocities(pan=3,tilt=3)
+    limit = joints.get_joint_limits()
     trackings = None
     roi_palette = RoiPalette(fov, roi_path=args.roi_path)
     m5 = akari.m5stack
@@ -139,26 +140,7 @@ def main() -> None:
         frame = None
         detections = []
         frame, detections, tracklets = oakd_palette.get_frame()
-        if args.robot_coordinate:
-            head_pos = joints.get_joint_positions()
-            pitch = head_pos["tilt"]
-            yaw = head_pos["pan"]
         if frame is not None:
-            if args.robot_coordinate:
-                for detection in detections:
-                    converted_pos = convert_to_pos_from_akari(
-                        detection.spatialCoordinates, pitch, yaw
-                    )
-                    detection.spatialCoordinates.x = converted_pos[0][0]
-                    detection.spatialCoordinates.y = converted_pos[1][0]
-                    detection.spatialCoordinates.z = converted_pos[2][0]
-                for tracklet in tracklets:
-                    converted_pos = convert_to_pos_from_akari(
-                        tracklet.spatialCoordinates, pitch, yaw
-                    )
-                    tracklet.spatialCoordinates.x = converted_pos[0][0]
-                    tracklet.spatialCoordinates.y = converted_pos[1][0]
-                    tracklet.spatialCoordinates.z = converted_pos[2][0]
             roi_palette.set_tracklets(tracklets)
             roi_palette.draw_frame()
             oakd_palette.display_frame("nn", frame, tracklets, roi_palette)
@@ -184,7 +166,9 @@ def main() -> None:
                 refresh=False,
                 sync=False,
             )
-        key = cv2.waitKey(10)
+        key = cv2.waitKeyEx(10)
+        pos = joints.get_joint_positions()
+        joint_command = False
         if key == ord("q"):
             break
         elif key == ord("r"):
@@ -201,7 +185,33 @@ def main() -> None:
             roi_palette.set_roi_id(1)
         elif key == ord("2"):
             roi_palette.set_roi_id(2)
-
+        if key == ord("j"):
+            joint_command = True
+            pos["pan"] = pos["pan"] + INPUT_POS_DIFF
+        if key == ord("l"):
+            joint_command = True
+            pos["pan"] = pos["pan"] - INPUT_POS_DIFF
+        if key == ord("i"):
+            joint_command = True
+            pos["tilt"] = pos["tilt"] + INPUT_POS_DIFF
+        if key == ord("m"):
+            joint_command = True
+            pos["tilt"] = pos["tilt"] - INPUT_POS_DIFF
+        if key == ord("k"):
+            joint_command = True
+            pos["pan"] = 0
+            pos["tilt"] = 0
+        # リミット範囲内に収める
+        if pos["pan"] < limit["pan"][0]:
+            pos["pan"] = limit["pan"][0]
+        elif pos["pan"] > limit["pan"][1]:
+            pos["pan"] = limit["pan"][1]
+        if pos["tilt"] < limit["tilt"][0]:
+            pos["tilt"] = limit["tilt"][0]
+        elif pos["tilt"] > limit["tilt"][1]:
+            pos["tilt"] = limit["tilt"][1]
+        if joint_command:
+            joints.move_joint_positions(pan=pos["pan"], tilt=pos["tilt"], sync=False)
 
 if __name__ == "__main__":
     main()
