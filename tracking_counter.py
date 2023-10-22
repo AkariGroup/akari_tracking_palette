@@ -16,6 +16,7 @@ from lib.palette import RoiPalette, OakdTrackingYoloWithPalette
 fov = 56.7
 INPUT_POS_DIFF = 0.05
 
+
 def convert_to_pos_from_akari(pos: Any, pitch: float, yaw: float) -> Any:
     pitch = -1 * pitch
     yaw = -1 * yaw
@@ -63,7 +64,7 @@ def main() -> None:
         "-f",
         "--fps",
         help="Camera frame fps. This should be smaller than nn inference fps",
-        default=10,
+        default=8,
         type=int,
     )
     parser.add_argument(
@@ -83,20 +84,11 @@ def main() -> None:
     # target_listの引数指定をしない場合、すべての認識対象がtracking対象になる。
     target_list = [0]
 
-    oakd_palette = OakdTrackingYoloWithPalette(
-        config_path=args.config,
-        model_path=args.model,
-        fps=args.fps,
-        fov=fov,
-        cam_debug=args.display_camera,
-        robot_coordinate=True,
-        track_targets=target_list,
-    )
     akari = AkariClient()
     joints = akari.joints
     joints.enable_all_servo()
-    joints.set_joint_accelerations(pan=20,tilt=20)
-    joints.set_joint_velocities(pan=3,tilt=3)
+    joints.set_joint_accelerations(pan=10, tilt=10)
+    joints.set_joint_velocities(pan=3, tilt=3)
     limit = joints.get_joint_limits()
     trackings = None
     roi_palette = RoiPalette(fov, roi_path=args.roi_path)
@@ -136,82 +128,106 @@ def main() -> None:
         refresh=False,
         sync=True,
     )
-    while True:
-        frame = None
-        detections = []
-        frame, detections, tracklets = oakd_palette.get_frame()
-        if frame is not None:
-            roi_palette.set_tracklets(tracklets)
-            roi_palette.draw_frame()
-            oakd_palette.display_frame("nn", frame, tracklets, roi_palette)
-            count = [0, 0, 0]
-            for tracklet in tracklets:
-                for i in range(0, 3):
-                    if (
-                        tracklet.status.name == "TRACKED"
-                        and roi_palette.is_point_in_roi(
-                            i,
-                            (
-                                tracklet.spatialCoordinates.x,
-                                tracklet.spatialCoordinates.z,
-                            ),
-                        )
-                    ):
-                        count[i] += 1
-            m5.set_display_text(
-                text=f" {count[0]}  {count[1]}  {count[2]} \n",
-                size=10,
-                pos_y=120,
-                text_color=Colors.NAVY,
-                refresh=False,
-                sync=False,
-            )
-        key = cv2.waitKeyEx(10)
-        pos = joints.get_joint_positions()
-        joint_command = False
-        if key == ord("q"):
-            break
-        elif key == ord("r"):
-            roi_palette.set_mode("rectangle")
-        elif key == ord("c"):
-            roi_palette.set_mode("circle")
-        elif key == ord("d"):
-            roi_palette.reset()
-        elif key == ord("s"):
-            roi_palette.save_roi()
-        elif key == ord("0"):
-            roi_palette.set_roi_id(0)
-        elif key == ord("1"):
-            roi_palette.set_roi_id(1)
-        elif key == ord("2"):
-            roi_palette.set_roi_id(2)
-        if key == ord("j"):
-            joint_command = True
-            pos["pan"] = pos["pan"] + INPUT_POS_DIFF
-        if key == ord("l"):
-            joint_command = True
-            pos["pan"] = pos["pan"] - INPUT_POS_DIFF
-        if key == ord("i"):
-            joint_command = True
-            pos["tilt"] = pos["tilt"] + INPUT_POS_DIFF
-        if key == ord("m"):
-            joint_command = True
-            pos["tilt"] = pos["tilt"] - INPUT_POS_DIFF
-        if key == ord("k"):
-            joint_command = True
-            pos["pan"] = 0
-            pos["tilt"] = 0
-        # リミット範囲内に収める
-        if pos["pan"] < limit["pan"][0]:
-            pos["pan"] = limit["pan"][0]
-        elif pos["pan"] > limit["pan"][1]:
-            pos["pan"] = limit["pan"][1]
-        if pos["tilt"] < limit["tilt"][0]:
-            pos["tilt"] = limit["tilt"][0]
-        elif pos["tilt"] > limit["tilt"][1]:
-            pos["tilt"] = limit["tilt"][1]
-        if joint_command:
-            joints.move_joint_positions(pan=pos["pan"], tilt=pos["tilt"], sync=False)
+    end = False
+    while not end:
+        oakd_palette = OakdTrackingYoloWithPalette(
+            config_path=args.config,
+            model_path=args.model,
+            fps=args.fps,
+            fov=fov,
+            cam_debug=args.display_camera,
+            robot_coordinate=True,
+            track_targets=target_list,
+        )
+        while True:
+            frame = None
+            detections = []
+            try:
+                frame, detections, tracklets = oakd_palette.get_frame()
+            except BaseException:
+                print("===================")
+                print("get_frame() error! Reboot OAK-D.")
+                print("If reboot occur frequently, Bandwidth may be too much.")
+                print("Please lower FPS.")
+                print("==================")
+                break
+            if frame is not None:
+                roi_palette.set_tracklets(tracklets)
+                roi_palette.draw_frame()
+                oakd_palette.display_frame("nn", frame, tracklets, roi_palette)
+                count = [0, 0, 0]
+                for tracklet in tracklets:
+                    for i in range(0, 3):
+                        if (
+                            tracklet.status.name == "TRACKED"
+                            and roi_palette.is_point_in_roi(
+                                i,
+                                (
+                                    tracklet.spatialCoordinates.x,
+                                    tracklet.spatialCoordinates.z,
+                                ),
+                            )
+                        ):
+                            count[i] += 1
+                m5.set_display_text(
+                    text=f" {count[0]}  {count[1]}  {count[2]} \n",
+                    size=10,
+                    pos_y=120,
+                    text_color=Colors.NAVY,
+                    refresh=False,
+                    sync=False,
+                )
+            key = cv2.waitKeyEx(10)
+            pos = joints.get_joint_positions()
+            joint_command = False
+            if key == ord("q"):
+                end = True
+                break
+            elif key == ord("r"):
+                roi_palette.set_mode("rectangle")
+            elif key == ord("c"):
+                roi_palette.set_mode("circle")
+            elif key == ord("d"):
+                roi_palette.reset()
+            elif key == ord("s"):
+                roi_palette.save_roi()
+            elif key == ord("0"):
+                roi_palette.set_roi_id(0)
+            elif key == ord("1"):
+                roi_palette.set_roi_id(1)
+            elif key == ord("2"):
+                roi_palette.set_roi_id(2)
+            if key == ord("j"):
+                joint_command = True
+                pos["pan"] = pos["pan"] + INPUT_POS_DIFF
+            if key == ord("l"):
+                joint_command = True
+                pos["pan"] = pos["pan"] - INPUT_POS_DIFF
+            if key == ord("i"):
+                joint_command = True
+                pos["tilt"] = pos["tilt"] + INPUT_POS_DIFF
+            if key == ord("m"):
+                joint_command = True
+                pos["tilt"] = pos["tilt"] - INPUT_POS_DIFF
+            if key == ord("k"):
+                joint_command = True
+                pos["pan"] = 0
+                pos["tilt"] = 0
+            # リミット範囲内に収める
+            if pos["pan"] < limit["pan"][0]:
+                pos["pan"] = limit["pan"][0]
+            elif pos["pan"] > limit["pan"][1]:
+                pos["pan"] = limit["pan"][1]
+            if pos["tilt"] < limit["tilt"][0]:
+                pos["tilt"] = limit["tilt"][0]
+            elif pos["tilt"] > limit["tilt"][1]:
+                pos["tilt"] = limit["tilt"][1]
+            if joint_command:
+                joints.move_joint_positions(
+                    pan=pos["pan"], tilt=pos["tilt"], sync=False
+                )
+        oakd_palette.close()
+
 
 if __name__ == "__main__":
     main()

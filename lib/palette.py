@@ -11,7 +11,7 @@ from geojson import Point, Polygon, Feature
 from akari_client import AkariClient
 from .akari_yolo_inference.oakd_yolo.oakd_tracking_yolo import OakdTrackingYolo
 
-DISPLAY_WINDOW_SIZE_RATE = 2.0
+DISPLAY_WINDOW_SIZE_RATE = 3.0
 
 
 class RectRoi(object):
