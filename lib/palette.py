@@ -1,14 +1,16 @@
-import cv2
 import json
-import numpy as np
 import math
-import time
 import os
-from typing import Any, List, Tuple, Optional
+import time
 from datetime import datetime
-from turfpy.measurement import boolean_point_in_polygon
-from geojson import Point, Polygon, Feature
+from typing import Any, List, Optional, Tuple
+
+import cv2
+import numpy as np
 from akari_client import AkariClient
+from geojson import Feature, Point, Polygon
+from turfpy.measurement import boolean_point_in_polygon
+
 from .akari_yolo_inference.oakd_yolo.oakd_tracking_yolo import OakdTrackingYolo
 
 DISPLAY_WINDOW_SIZE_RATE = 3.0
@@ -100,7 +102,7 @@ class RoiPalette(object):
         self.FRAME_HEIGHT = 480
         self.FRAME_WIDTH = 640
         self.Z_RANGE = 10000
-        self.X_RANGE = self.Z_RANGE *self.FRAME_WIDTH/self.FRAME_HEIGHT
+        self.X_RANGE = self.Z_RANGE * self.FRAME_WIDTH / self.FRAME_HEIGHT
         self.LATTICE_INTERVAL = 2000
         self.window_name = "palette"
         self.tracklets: Any = None
@@ -197,7 +199,9 @@ class RoiPalette(object):
         """
         bird_frame上の座標をロボットから見た3次元位置に変換する。
         """
-        pos_x =  -1 *( point[0] - self.FRAME_WIDTH/2) / self.FRAME_WIDTH * (self.X_RANGE)
+        pos_x = (
+            -1 * (point[0] - self.FRAME_WIDTH / 2) / self.FRAME_WIDTH * (self.X_RANGE)
+        )
         pos_z = (-point[1] + self.FRAME_HEIGHT) / self.FRAME_HEIGHT * (self.Z_RANGE)
         return (pos_x, pos_z)
 
@@ -217,7 +221,9 @@ class RoiPalette(object):
         """
         ロボットから見た3次元位置をbird_frame上の座標に変換する。
         """
-        point_x = int( -1 * pos[0] / self.X_RANGE * self.FRAME_WIDTH + self.FRAME_WIDTH/2)
+        point_x = int(
+            -1 * pos[0] / self.X_RANGE * self.FRAME_WIDTH + self.FRAME_WIDTH / 2
+        )
         point_y = self.FRAME_HEIGHT - int(pos[1] / self.Z_RANGE * self.FRAME_HEIGHT)
         return (point_x, point_y)
 
@@ -269,7 +275,7 @@ class RoiPalette(object):
             lattice_y -= int(self.FRAME_HEIGHT / self.Z_RANGE * self.LATTICE_INTERVAL)
         return frame
 
-    def add_tracklet_to_frame(self, frame:np.ndarray) -> np.ndarray:
+    def add_tracklet_to_frame(self, frame: np.ndarray) -> np.ndarray:
         """
         bird_frame上にtrackletの情報を追加する。
         """
@@ -284,7 +290,7 @@ class RoiPalette(object):
                     cv2.putText(
                         frame,
                         self.labels[tracklet.label],
-                        (pointX - 30, pointY + 5),
+                        (pos[0] - 30, pos[1] + 5),
                         cv2.FONT_HERSHEY_TRIPLEX,
                         0.5,
                         (0, 241, 255),
@@ -317,7 +323,7 @@ class RoiPalette(object):
                 )
         return frame
 
-    def draw_fov(self,frame:np.ndarray) -> np.ndarray:
+    def draw_fov(self, frame: np.ndarray) -> np.ndarray:
         """
         AKARIのヘッドの向きに応じてFOVを描画する。
         """
@@ -329,55 +335,71 @@ class RoiPalette(object):
         if ang_p >= 1.57:
             pass
         if 0.464 < ang_p < 1.57:
-            fov_cnt = np.array([
-                (center, frame.shape[0]),
-                (frame.shape[1], frame.shape[0]),
-                (
-                    frame.shape[1],
-                    int(frame.shape[0] - (frame.shape[1] / (2 * math.tan(ang_p)))),
-                ),
-                (center, frame.shape[0]),
-            ])
+            fov_cnt = np.array(
+                [
+                    (center, frame.shape[0]),
+                    (frame.shape[1], frame.shape[0]),
+                    (
+                        frame.shape[1],
+                        int(frame.shape[0] - (frame.shape[1] / (2 * math.tan(ang_p)))),
+                    ),
+                    (center, frame.shape[0]),
+                ]
+            )
             cv2.fillPoly(frame, [fov_cnt], color=(70, 70, 70))
         else:
-            fov_cnt = np.array([
-                (center, frame.shape[0]),
-                (frame.shape[1], frame.shape[0]),
-                (frame.shape[1], 0),
-                (center + int(frame.shape[0] * math.tan(ang_p)), 0),
-                (center, frame.shape[0]),
-            ])
+            fov_cnt = np.array(
+                [
+                    (center, frame.shape[0]),
+                    (frame.shape[1], frame.shape[0]),
+                    (frame.shape[1], 0),
+                    (center + int(frame.shape[0] * math.tan(ang_p)), 0),
+                    (center, frame.shape[0]),
+                ]
+            )
             cv2.fillPoly(frame, [fov_cnt], color=(70, 70, 70))
         # 負方向fovの境界描画
         ang_n = -math.radians(alpha) + yaw
         if ang_n <= -1.57:
             pass
         if -0.464 > ang_n > -1.57:
-            fov_cnt = np.array([
-                (center, frame.shape[0]),
-                (0, frame.shape[0]),
-                (
-                    0,
-                    int(frame.shape[0] + (frame.shape[1] / (2 * math.tan(ang_n)))),
-                ),
-                (center, frame.shape[0]),
-            ])
+            fov_cnt = np.array(
+                [
+                    (center, frame.shape[0]),
+                    (0, frame.shape[0]),
+                    (
+                        0,
+                        int(frame.shape[0] + (frame.shape[1] / (2 * math.tan(ang_n)))),
+                    ),
+                    (center, frame.shape[0]),
+                ]
+            )
             cv2.fillPoly(frame, [fov_cnt], color=(70, 70, 70))
         else:
-            fov_cnt = np.array([
-                (center, frame.shape[0]),
-                (0, frame.shape[0]),
-                (0, 0),
-                (center + int(frame.shape[0] * math.tan(ang_n)), 0),
-                (center, frame.shape[0]),
-            ])
+            fov_cnt = np.array(
+                [
+                    (center, frame.shape[0]),
+                    (0, frame.shape[0]),
+                    (0, 0),
+                    (center + int(frame.shape[0] * math.tan(ang_n)), 0),
+                    (center, frame.shape[0]),
+                ]
+            )
             cv2.fillPoly(frame, [fov_cnt], color=(70, 70, 70))
         # ロボット向きの描画
-        robot_tri = np.array([
-            (center, frame.shape[0]),
-            (int(center + 20 * math.sin(ang_p)), int(frame.shape[0] - 20 * math.cos(ang_p))),
-            (int(center + 20 * math.sin(ang_n)), int(frame.shape[0] - 20 * math.cos(ang_n)))
-        ])
+        robot_tri = np.array(
+            [
+                (center, frame.shape[0]),
+                (
+                    int(center + 20 * math.sin(ang_p)),
+                    int(frame.shape[0] - 20 * math.cos(ang_p)),
+                ),
+                (
+                    int(center + 20 * math.sin(ang_n)),
+                    int(frame.shape[0] - 20 * math.cos(ang_n)),
+                ),
+            ]
+        )
         cv2.fillPoly(frame, [robot_tri], color=(0, 241, 255))
         return frame
 
@@ -431,7 +453,7 @@ class RoiPalette(object):
 
         cv2.putText(
             frame,
-            f"roi id: ",
+            "roi id: ",
             (0, frame.shape[0] - 30),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
@@ -520,9 +542,6 @@ class OakdTrackingYoloWithPalette(OakdTrackingYolo):
                     int(frame.shape[0] * DISPLAY_WINDOW_SIZE_RATE),
                 ),
             )
-            height = int(frame.shape[1] * 9 / 16)
-            width = frame.shape[1]
-            brank_height = width - height
             if tracklets is not None:
                 for tracklet in tracklets:
                     if tracklet.status.name == "TRACKED":
@@ -533,7 +552,7 @@ class OakdTrackingYoloWithPalette(OakdTrackingYolo):
                         y2 = int(roi.bottomRight().y)
                         try:
                             label = self.labels[tracklet.label]
-                        except:
+                        except BaseException:
                             label = tracklet.label
                         self.text.put_text(frame, str(label), (x1 + 10, y1 + 20))
                         self.text.put_text(

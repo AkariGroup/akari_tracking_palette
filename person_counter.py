@@ -4,7 +4,6 @@ import math
 from typing import Any
 
 import cv2
-import numpy
 import numpy as np
 
 from akari_client import AkariClient
@@ -90,7 +89,6 @@ def main() -> None:
     joints.set_joint_accelerations(pan=10, tilt=10)
     joints.set_joint_velocities(pan=3, tilt=3)
     limit = joints.get_joint_limits()
-    trackings = None
     roi_palette = RoiPalette(fov, roi_path=args.roi_path)
     m5 = akari.m5stack
     m5.set_display_text(
@@ -148,7 +146,7 @@ def main() -> None:
                 print("===================")
                 print("get_frame() error! Reboot OAK-D.")
                 print("If reboot occur frequently, Bandwidth may be too much.")
-                print("Please lower FPS.")
+                print("Set lower FPS.")
                 print("==================")
                 break
             if frame is not None:
@@ -157,6 +155,7 @@ def main() -> None:
                 oakd_palette.display_frame("nn", frame, tracklets, roi_palette)
                 count = [0, 0, 0]
                 for tracklet in tracklets:
+                    # trackletがトラッキング中かつ指定エリアに存在するかを判定し、存在したらカウントアップする
                     for i in range(0, 3):
                         if (
                             tracklet.status.name == "TRACKED"
@@ -180,6 +179,7 @@ def main() -> None:
             key = cv2.waitKeyEx(10)
             pos = joints.get_joint_positions()
             joint_command = False
+            # キーボードコントロール
             if key == ord("q"):
                 end = True
                 break
