@@ -79,9 +79,9 @@ def main() -> None:
         type=str,
     )
     args = parser.parse_args()
-    # personのみをtracking対象に指定。他のものをtracking対象にしたい時はここを変更する。
+    # personのみをtracking対象に指定。他のものをtracking対象にしたい時はtarget_listにラベル名かラベルIDを追記する。
     # target_listの引数指定をしない場合、すべての認識対象がtracking対象になる。
-    target_list = [0]
+    target_list = ['person']
 
     akari = AkariClient()
     joints = akari.joints
