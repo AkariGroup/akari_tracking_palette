@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 import argparse
-import math
-from typing import Any
+
 import cv2
-import numpy
-import numpy as np
-from lib.palette import RoiPalette, OakdTrackingYoloWithPalette
+from lib.palette import OakdTrackingYoloWithPalette, RoiPalette
 
 # OAK-D LITEの視野角
 fov = 56.7

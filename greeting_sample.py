@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 import argparse
 import time
-import cv2
 from typing import List
+
+import cv2
 from akari_client import AkariClient
-from lib.palette import RoiPalette, OakdTrackingYoloWithPalette
+from lib.palette import OakdTrackingYoloWithPalette, RoiPalette
 
 # OAK-D LITEの視野角
 fov = 56.7
@@ -82,7 +83,7 @@ def main() -> None:
         )
         while True:
             # 音声出力&画面変更後、一定時間経過するまでロックする
-            if time.time() - prev_time >= LOCK_TIME and is_reset == False:
+            if time.time() - prev_time >= LOCK_TIME and is_reset is False:
                 is_reset = True
                 m5.set_display_image("/jpg/logo320.jpg", sync=False)
             frame = None

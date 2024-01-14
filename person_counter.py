@@ -5,11 +5,10 @@ from typing import Any
 
 import cv2
 import numpy as np
-
 from akari_client import AkariClient
 from akari_client.color import Colors
 from akari_client.position import Positions
-from lib.palette import RoiPalette, OakdTrackingYoloWithPalette
+from lib.palette import OakdTrackingYoloWithPalette, RoiPalette
 
 # OAK-D LITEの視野角
 fov = 56.7
@@ -77,6 +76,12 @@ def main() -> None:
         help="Roi json file path",
         default=None,
         type=str,
+    )
+    parser.add_argument(
+        "-l",
+        "--logging",
+        help="Logging tracklet in area",
+        action="store_true",
     )
     args = parser.parse_args()
     # personのみをtracking対象に指定。他のものをtracking対象にしたい時はここを変更する。

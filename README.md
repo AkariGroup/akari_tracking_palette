@@ -61,3 +61,23 @@ https://akarigroup.github.io/docs/source/dev/custom_object_detection/main.html
 - `i`: ヘッドが上に動く。  
 - `m`: ヘッドが下に動く。  
 - `k`: ヘッドが初期位置に戻る  
+
+### エリア入退場監視
+`python3 person_logger.py`  
+
+各エリアの入退場履歴をロギングする。  
+ログは`log/{アプリ起動日時}`のディレクトリにcsvと画像が保存される。  
+
+csvは検出した人ごとに、下記のデータが保存される。  
+- `id`: 人ごとに振られる検出id
+- `name`: 検出した物体の種類。このサンプルでは人のみに対象を絞っているため、すべて"person"となる。
+- `start_time`: 最初に検出した時刻
+- `last_time`: 最後に検出した時刻
+- `area0_total_time`: area0にいた累計時間
+- `area0_last_time`: area0で最後に検出した時間
+- `area1_total_time`: area1にいた累計時間
+- `area1_last_time`: area1で最後に検出した時間
+- `area2_total_time`: area2にいた累計時間
+- `area2_last_time`: area2で最後に検出した時間
+
+画像は人のidごとに各エリアで最初に検出されたタイミングで保存される。  

@@ -1,8 +1,8 @@
+import csv
 import json
 import math
 import os
 import time
-import csv
 from datetime import datetime
 from typing import Any, List, Optional, Tuple
 
@@ -532,6 +532,14 @@ class trackData(object):
         self.last_time: Optional[datetime] = None
         self.total_in_area_time: List[float] = [0.0, 0.0, 0.0]
         self.last_in_area_time: List[Optional[datetime]] = [None, None, None]
+        self.detected_in_area_flg: List[bool] = [
+            False,
+            False,
+            False,
+        ]  # total_in_area_timeを超えた時1度だけTrueになる
+
+    def reset_detected_in_area_flg(self) -> None:
+        self.detected_in_area_flg = [False, False, False]
 
     def add_area_time(self, area: int, time: float):
         if area > 2:
@@ -543,13 +551,16 @@ class trackData(object):
 
 
 class trackDataList(object):
-    def __init__(self, labels: List[str], roi_palette: RoiPalette):
+    def __init__(self, labels: List[str], roi_palette: RoiPalette, log_path: str):
         self.data: List[trackData] = []
+        self.AREA_IN_TIME_THRESHOULD: float = 0.5  # この時間エリア内に検出されたらエリア内と判定
         self.AREA_OUT_TIME_THRESHOULD: float = 1.0  # この時間エリアから外れたらエリア外にいたと判定
         self.labels = labels
         self.roi_palette = roi_palette
         current_time = datetime.now()
-        self.file_name = f"log/data_{current_time.strftime('%Y%m%d_%H%M%S')}.csv"
+        self.file_name = (
+            log_path + f"/data_{current_time.strftime('%Y%m%d_%H%M%S')}.csv"
+        )
         title = [
             "id",
             "name",
@@ -626,6 +637,7 @@ class trackDataList(object):
             if not is_available:
                 self.create_track_data(tracklet)
             for track_data in self.data:
+                track_data.reset_detected_in_area_flg()
                 if tracklet.id == track_data.id and self.is_available_tracklet(
                     tracklet.status.name
                 ):
@@ -640,8 +652,18 @@ class trackDataList(object):
                             ),
                         ):
                             if track_data.last_in_area_time[i] is not None:
-                                diff = (now - track_data.last_in_area_time[i]).microseconds / 1000000
+                                diff = (
+                                    now - track_data.last_in_area_time[i]
+                                ).microseconds / 1000000
                                 if diff <= self.AREA_OUT_TIME_THRESHOULD:
+                                    # AREA_IN_TIME_THRESHOULDを超える初回のみdetected_in_area_flgを立てる
+                                    if (
+                                        track_data.total_in_area_time[i]
+                                        < self.AREA_IN_TIME_THRESHOULD
+                                        and (track_data.total_in_area_time[i] + diff)
+                                        >= self.AREA_IN_TIME_THRESHOULD
+                                    ):
+                                        track_data.detected_in_area_flg[i] = True
                                     track_data.total_in_area_time[i] += diff
                             track_data.last_in_area_time[i] = now
         # trackletsから消えたdataをtrack_data_listから削除
