@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import argparse
 import math
+import os
+from datetime import datetime
 from typing import Any
 
 import cv2
@@ -8,7 +10,7 @@ import numpy as np
 from akari_client import AkariClient
 from akari_client.color import Colors
 from akari_client.position import Positions
-from lib.palette import OakdTrackingYoloWithPalette, RoiPalette
+from lib.palette import OakdTrackingYoloWithPalette, RoiPalette, trackDataList
 
 # OAK-D LITEの視野角
 fov = 56.7
@@ -77,16 +79,15 @@ def main() -> None:
         default=None,
         type=str,
     )
-    parser.add_argument(
-        "-l",
-        "--logging",
-        help="Logging tracklet in area",
-        action="store_true",
-    )
     args = parser.parse_args()
-    # personのみをtracking対象に指定。他のものをtracking対象にしたい時はここを変更する。
+    # personのみをtracking対象に指定。他のものをtracking対象にしたい時はtarget_listにラベル名かラベルIDを追記する。
     # target_listの引数指定をしない場合、すべての認識対象がtracking対象になる。
-    target_list = [0]
+    target_list = ["person"]
+
+    # log_pathを作成
+    current_time = datetime.now()
+    log_path = f"{os.getcwd()}/log/{current_time.strftime('%Y%m%d_%H%M%S')}/"
+    os.mkdir(log_path)
 
     akari = AkariClient()
     joints = akari.joints
@@ -142,6 +143,9 @@ def main() -> None:
             robot_coordinate=True,
             track_targets=target_list,
         )
+
+        labels = oakd_palette.get_labels()
+        track_data_list = trackDataList(labels, roi_palette, log_path)
         while True:
             frame = None
             detections = []
@@ -155,6 +159,19 @@ def main() -> None:
                 print("==================")
                 break
             if frame is not None:
+                track_data_list.update_track_data_list(tracklets)
+                # track_data_list.debug_track_data_list()
+                # detected_in_area_flgが立っている時(エリア入場検知時)のみ画像を保存
+                for data in track_data_list.data:
+                    for i, flg in enumerate(data.detected_in_area_flg):
+                        if flg:
+                            current_time = datetime.now()
+                            save_path = (
+                                log_path
+                                + f"{current_time.strftime('%Y%m%d_%H%M%S')}_id{data.id}_area{i}.jpg"
+                            )
+                            cv2.imwrite(save_path, frame)
+                            print(f"Save image: {save_path}")
                 roi_palette.set_tracklets(tracklets)
                 roi_palette.draw_frame()
                 oakd_palette.display_frame("nn", frame, tracklets, roi_palette)
@@ -202,6 +219,8 @@ def main() -> None:
                 roi_palette.set_roi_id(1)
             elif key == ord("2"):
                 roi_palette.set_roi_id(2)
+            elif key == ord("w"):
+                roi_palette.set_mode("rectangle")
             if key == ord("j"):
                 joint_command = True
                 pos["pan"] = pos["pan"] + INPUT_POS_DIFF

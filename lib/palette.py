@@ -1,3 +1,4 @@
+import csv
 import json
 import math
 import os
@@ -13,7 +14,7 @@ from turfpy.measurement import boolean_point_in_polygon
 
 from .akari_yolo_inference.oakd_yolo.oakd_tracking_yolo import OakdTrackingYolo
 
-DISPLAY_WINDOW_SIZE_RATE = 3.0
+DISPLAY_WINDOW_SIZE_RATE = 2.0
 
 
 class RectRoi(object):
@@ -521,6 +522,181 @@ class RoiPalette(object):
             if circle.is_pos_in_circle(pos):
                 return True
         return False
+
+
+class trackData(object):
+    def __init__(self, name: str, id: int):
+        self.name: str = name
+        self.id: int = id
+        self.start_time: datetime = datetime.now()
+        self.last_time: Optional[datetime] = None
+        self.total_in_area_time: List[float] = [0.0, 0.0, 0.0]
+        self.last_in_area_time: List[Optional[datetime]] = [None, None, None]
+        self.detected_in_area_flg: List[bool] = [
+            False,
+            False,
+            False,
+        ]  # total_in_area_timeを超えた時1度だけTrueになる
+
+    def reset_detected_in_area_flg(self) -> None:
+        self.detected_in_area_flg = [False, False, False]
+
+    def add_area_time(self, area: int, time: float):
+        if area > 2:
+            return
+        self.area_time[area] += time
+
+    def lost_track(self):
+        self.last_time = datetime.now()
+
+
+class trackDataList(object):
+    def __init__(self, labels: List[str], roi_palette: RoiPalette, log_path: str):
+        self.data: List[trackData] = []
+        self.AREA_IN_TIME_THRESHOULD: float = 0.5  # この時間エリア内に検出されたらエリア内と判定
+        self.AREA_OUT_TIME_THRESHOULD: float = 1.0  # この時間エリアから外れたらエリア外にいたと判定
+        self.labels = labels
+        self.roi_palette = roi_palette
+        current_time = datetime.now()
+        self.file_name = (
+            log_path + f"/data_{current_time.strftime('%Y%m%d_%H%M%S')}.csv"
+        )
+        title = [
+            "id",
+            "name",
+            "start_time",
+            "last_time",
+            "area0_total_time",
+            "area0_last_time",
+            "area1_total_time",
+            "area1_last_time",
+            "area2_total_time",
+            "area2_last_time",
+        ]
+        with open(self.file_name, mode="w", newline="") as file:
+            writer = csv.writer(file)
+            # タイトル行を書き込み
+            writer.writerow(title)
+
+    def get_label(self, id: int) -> str:
+        if id < len(self.labels):
+            return self.labels[id]
+        else:
+            return str(id)
+
+    def is_available_tracklet(self, status: str) -> bool:
+        if status != "LOST" and status != "REMOVED":
+            return True
+        else:
+            return False
+
+    def get_formatted_time(self, time: Optional[datetime]) -> str:
+        if time is None:
+            return ""
+        else:
+            return time.strftime("%Y/%m/%d %H:%M:%S")
+
+    def create_track_data(self, tracklet: Any):
+        track_data = trackData(self.get_label(tracklet.label), tracklet.id)
+        self.data.append(track_data)
+
+    def save_track_data(self, id: int):
+        cur_track = None
+        for track in self.data:
+            if track.id == id:
+                cur_track = track
+        if track is None:
+            return
+        data_line = [
+            cur_track.id,
+            cur_track.name,
+            self.get_formatted_time(cur_track.start_time),
+            self.get_formatted_time(cur_track.last_time),
+            cur_track.total_in_area_time[0],
+            self.get_formatted_time(cur_track.last_in_area_time[0]),
+            cur_track.total_in_area_time[1],
+            self.get_formatted_time(cur_track.last_in_area_time[1]),
+            cur_track.total_in_area_time[2],
+            self.get_formatted_time(cur_track.last_in_area_time[2]),
+        ]
+        with open(self.file_name, mode="a", newline="") as file:
+            writer = csv.writer(file)
+            # タイトル行を書き込み
+            writer.writerow(data_line)
+        self.data = [x for x in self.data if x.id != id]
+
+    def update_track_data_list(self, tracklets: Any):
+        if tracklets is None:
+            return
+        # 各trackletでtrack_data_listを更新
+        for tracklet in tracklets:
+            is_available = False
+            for track_data in self.data:
+                if tracklet.id == track_data.id:
+                    is_available = True
+            if not is_available:
+                self.create_track_data(tracklet)
+            for track_data in self.data:
+                track_data.reset_detected_in_area_flg()
+                if tracklet.id == track_data.id and self.is_available_tracklet(
+                    tracklet.status.name
+                ):
+                    now = datetime.now()
+                    track_data.last_time = now
+                    for i in range(0, 3):
+                        if self.roi_palette.is_point_in_roi(
+                            i,
+                            (
+                                tracklet.spatialCoordinates.x,
+                                tracklet.spatialCoordinates.z,
+                            ),
+                        ):
+                            if track_data.last_in_area_time[i] is not None:
+                                diff = (
+                                    now - track_data.last_in_area_time[i]
+                                ).microseconds / 1000000
+                                if diff <= self.AREA_OUT_TIME_THRESHOULD:
+                                    # AREA_IN_TIME_THRESHOULDを超える初回のみdetected_in_area_flgを立てる
+                                    if (
+                                        track_data.total_in_area_time[i]
+                                        < self.AREA_IN_TIME_THRESHOULD
+                                        and (track_data.total_in_area_time[i] + diff)
+                                        >= self.AREA_IN_TIME_THRESHOULD
+                                    ):
+                                        track_data.detected_in_area_flg[i] = True
+                                    track_data.total_in_area_time[i] += diff
+                            track_data.last_in_area_time[i] = now
+        # trackletsから消えたdataをtrack_data_listから削除
+        for track_data in self.data:
+            is_available = False
+            for tracklet in tracklets:
+                if track_data.id == tracklet.id:
+                    is_available = True
+            if not is_available:
+                self.save_track_data(track_data.id)
+
+    def debug_track_data_list(self):
+        for track_data in self.data:
+            print(f"name: {track_data.name}")
+            print(f"id: {track_data.id}")
+            print(f"start_time: {self.get_formatted_time(track_data.start_time)}")
+            print(f"last_time: {self.get_formatted_time(track_data.last_time)}")
+            print("total_time:")
+            print(f"    area0: {track_data.total_in_area_time[0]}")
+            print(f"    area1: {track_data.total_in_area_time[1]}")
+            print(f"    area2: {track_data.total_in_area_time[2]}")
+            print("last_time:")
+            print(
+                f"    area0: {self.get_formatted_time(track_data.last_in_area_time[0])}"
+            )
+            print(
+                f"    area1: {self.get_formatted_time(track_data.last_in_area_time[1])}"
+            )
+            print(
+                f"    area2: {self.get_formatted_time(track_data.last_in_area_time[2])}"
+            )
+            print("-------------------------------")
+        print("===============================")
 
 
 class OakdTrackingYoloWithPalette(OakdTrackingYolo):
