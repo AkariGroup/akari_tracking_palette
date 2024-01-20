@@ -12,7 +12,7 @@ from akari_client import AkariClient
 from geojson import Feature, Point, Polygon
 from turfpy.measurement import boolean_point_in_polygon
 
-from .akari_yolo_inference.oakd_yolo.oakd_tracking_yolo import OakdTrackingYolo
+from .akari_yolo_lib.oakd_tracking_yolo import OakdTrackingYolo
 
 DISPLAY_WINDOW_SIZE_RATE = 2.0
 

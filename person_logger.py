@@ -57,7 +57,7 @@ def main() -> None:
         "-c",
         "--config",
         help="Provide config path for inference",
-        default="lib/akari_yolo_inference/json/yolov4-tiny.json",
+        default="json/yolov4-tiny.json",
         type=str,
     )
     parser.add_argument(
