@@ -524,7 +524,32 @@ class RoiPalette(object):
         return False
 
 
-class trackData(object):
+class OrbitData(object):
+    def __init__(self, name: str, id: int):
+        self.name: str = name
+        self.id: int = id
+        self.orbit_points: List[Tuple[datetime, float, float]] = []
+
+
+class OrbitDataList(object):
+    def __init__(self, labels: List[str], roi_palette: RoiPalette, log_path: str):
+        self.data: List[TrackData] = []
+        self.labels: List[str] = labels
+        self.roi_palette = roi_palette
+        current_time = datetime.now()
+        self.file_name = (
+            log_path + f"/data_{current_time.strftime('%Y%m%d_%H%M%S')}.csv"
+        )
+
+    def get_label(self, id: int) -> str:
+        if id < len(self.labels):
+            return self.labels[id]
+        else:
+
+
+
+
+class TrackData(object):
     def __init__(self, name: str, id: int):
         self.name: str = name
         self.id: int = id
@@ -550,11 +575,15 @@ class trackData(object):
         self.last_time = datetime.now()
 
 
-class trackDataList(object):
+class TrackDataList(object):
     def __init__(self, labels: List[str], roi_palette: RoiPalette, log_path: str):
-        self.data: List[trackData] = []
-        self.AREA_IN_TIME_THRESHOULD: float = 0.5  # この時間エリア内に検出されたらエリア内と判定
-        self.AREA_OUT_TIME_THRESHOULD: float = 1.0  # この時間エリアから外れたらエリア外にいたと判定
+        self.data: List[TrackData] = []
+        self.AREA_IN_TIME_THRESHOULD: float = (
+            0.5  # この時間エリア内に検出されたらエリア内と判定
+        )
+        self.AREA_OUT_TIME_THRESHOULD: float = (
+            1.0  # この時間エリアから外れたらエリア外にいたと判定
+        )
         self.labels = labels
         self.roi_palette = roi_palette
         current_time = datetime.now()
@@ -597,7 +626,7 @@ class trackDataList(object):
             return time.strftime("%Y/%m/%d %H:%M:%S")
 
     def create_track_data(self, tracklet: Any):
-        track_data = trackData(self.get_label(tracklet.label), tracklet.id)
+        track_data = TrackData(self.get_label(tracklet.label), tracklet.id)
         self.data.append(track_data)
 
     def save_track_data(self, id: int):
