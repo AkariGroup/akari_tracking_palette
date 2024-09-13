@@ -1,14 +1,18 @@
-import cv2
+import csv
 import json
-import numpy as np
 import math
-import time
 import os
-from typing import Any, List, Tuple, Optional
+import time
 from datetime import datetime
+from typing import Any, List, Optional, Tuple
+
+import cv2
+import numpy as np
+from akari_client import AkariClient
+from geojson import Feature, Point, Polygon
 from turfpy.measurement import boolean_point_in_polygon
-from geojson import Point, Polygon, Feature
-from .akari_yolo_inference.oakd_yolo.oakd_tracking_yolo import OakdTrackingYolo
+
+from .akari_yolo_lib.oakd_tracking_yolo import OakdTrackingYolo
 
 DISPLAY_WINDOW_SIZE_RATE = 2.0
 
@@ -19,7 +23,9 @@ class RectRoi(object):
         self.p2: Tuple[float, float] = p2
 
     def is_pos_in_rect(self, pos: Tuple[float, float]) -> bool:
-        # rectは四角形の4つの頂点を表すリスト。
+        """
+        posが矩形エリア内に存在するか確認する。
+        """
         point = Feature(geometry=Point(pos))
         polygon = Polygon(
             [
@@ -40,6 +46,9 @@ class CircleRoi(object):
         self.radius: float = radius
 
     def is_pos_in_circle(self, pos: Tuple[float, float]) -> bool:
+        """
+        posが円形エリア内に存在するか確認する。
+        """
         distance = math.sqrt((pos[0] - self.p1[0]) ** 2 + (pos[1] - self.p1[1]) ** 2)
         if distance <= self.radius:
             return True
@@ -53,12 +62,21 @@ class RoiList(object):
         self.circle: List[CircleRoi] = []
 
     def add_rect(self, p1, p2):
+        """
+        矩形エリアをroiリストに追加する。
+        """
         self.rect.append(RectRoi(p1, p2))
 
     def add_circle(self, p1, radius):
+        """
+        円形エリアをroiリストに追加する。
+        """
         self.circle.append(CircleRoi(p1, radius))
 
     def reset(self):
+        """
+        roiを初期化する。
+        """
         self.rect.clear()
         self.circle.clear()
 
@@ -82,16 +100,23 @@ class RoiPalette(object):
         self.cur_roi_id = 0
         self.fov = fov
         self.show_labels = False
-        self.frame_size = 480
-        self.RANGE = 10000
+        self.FRAME_HEIGHT = 480
+        self.FRAME_WIDTH = 640
+        self.Z_RANGE = 10000
+        self.X_RANGE = self.Z_RANGE * self.FRAME_WIDTH / self.FRAME_HEIGHT
         self.LATTICE_INTERVAL = 2000
         self.window_name = "palette"
         self.tracklets: Any = None
+        akari = AkariClient()
+        self.joints = akari.joints
         self.bird_eye_frame = self.create_bird_frame()
         if roi_path is not None:
             self.load_roi(roi_path)
 
     def load_roi(self, path: str) -> None:
+        """
+        saveしたroiをpathから取得し、初期状態として使用する。
+        """
         if not os.path.isfile(path):
             print(f"ROI setting file path {path} is not available.")
             return
@@ -114,88 +139,107 @@ class RoiPalette(object):
                                 print(f"ROI file id:{id} circle type wrong")
 
     def save_roi(self) -> None:
+        """
+        roiをjsonファイルにsaveする。
+        """
         current_time = datetime.now()
         file_name = current_time.strftime("%Y%m%d_%H%M%S.json")
         file_path = "roi_json/" + file_name
         roi_dict = {}
         for i in range(0, self.MAX_ROI_ID):
-            roi_dict[str(i)] ={}
-            if(self.roi[i].rect):
-                roi_dict[str(i)]["rectangle"] =[]
+            roi_dict[str(i)] = {}
+            if self.roi[i].rect:
+                roi_dict[str(i)]["rectangle"] = []
                 for rect in self.roi[i].rect:
                     cur_roi = {}
                     cur_roi["p1"] = rect.p1
                     cur_roi["p2"] = rect.p2
                     roi_dict[str(i)]["rectangle"].append(cur_roi)
-            if(self.roi[i].circle):
-                roi_dict[str(i)]["circle"] =[]
+            if self.roi[i].circle:
+                roi_dict[str(i)]["circle"] = []
                 for circle in self.roi[i].circle:
                     cur_roi = {}
                     cur_roi["p1"] = circle.p1
                     cur_roi["radius"] = circle.radius
                     roi_dict[str(i)]["circle"].append(cur_roi)
-        with open(file_path, 'w') as json_file:
+        with open(file_path, "w") as json_file:
             json.dump(roi_dict, json_file, indent=4)
 
-
-    def set_mode(self, mode: str):
+    def set_mode(self, mode: str) -> bool:
+        """
+        矩形描画と円の描画を切り替える。
+        """
         if mode == "rectangle" or mode == "circle":
             self.mode = mode
             return True
         return False
 
     def set_roi_id(self, id: int) -> bool:
+        """
+        現在のroiのIDを切り替える。
+        """
         if 0 <= id < self.MAX_ROI_ID:
             self.cur_roi_id = id
             return True
         return False
 
-    def set_tracklets(self, tracklets):
+    def set_tracklets(self, tracklets) -> None:
+        """
+        trackletをセットする。
+        """
         self.tracklets = tracklets
 
-    def reset(self):
+    def reset(self) -> None:
+        """
+        roiを初期化する。
+        """
         for roi in self.roi:
             roi.reset()
 
     def point_to_pos(self, point: Tuple[int, int]) -> Tuple[float, float]:
-        pos_x = (point[0] - self.frame_size / 2) / self.frame_size * (self.RANGE)
-        pos_z = (-point[1] + self.frame_size) / self.frame_size * (self.RANGE)
+        """
+        bird_frame上の座標をロボットから見た3次元位置に変換する。
+        """
+        pos_x = (
+            -1 * (point[0] - self.FRAME_WIDTH / 2) / self.FRAME_WIDTH * (self.X_RANGE)
+        )
+        pos_z = (-point[1] + self.FRAME_HEIGHT) / self.FRAME_HEIGHT * (self.Z_RANGE)
         return (pos_x, pos_z)
 
     def point_diff_to_pos_diff(self, diff: float) -> float:
-        return diff / self.frame_size * self.RANGE
+        """
+        bird_frame上の座標の差分をロボットから見た3次元位置の差分に変換する。
+        """
+        return diff / self.FRAME_HEIGHT * self.Z_RANGE
 
     def pos_diff_to_point_diff(self, diff: float) -> float:
-        return diff / self.RANGE * self.frame_size
+        """
+        ロボットから見た3次元位置の差分をbird_frame上の座標の差分に変換する。
+        """
+        return diff / self.Z_RANGE * self.FRAME_HEIGHT
 
     def pos_to_point(self, pos: Tuple[float, float]) -> Tuple[int, int]:
-        point_x = int(pos[0] / self.RANGE * self.frame_size + self.frame_size / 2)
-        point_y = self.frame_size - int(pos[1] / self.RANGE * self.frame_size)
+        """
+        ロボットから見た3次元位置をbird_frame上の座標に変換する。
+        """
+        point_x = int(
+            -1 * pos[0] / self.X_RANGE * self.FRAME_WIDTH + self.FRAME_WIDTH / 2
+        )
+        point_y = self.FRAME_HEIGHT - int(pos[1] / self.Z_RANGE * self.FRAME_HEIGHT)
         return (point_x, point_y)
 
     def create_bird_frame(self) -> np.ndarray:
+        """
+        bird_frameを作成する。
+        """
         # ウィンドウを作成
         cv2.namedWindow(self.window_name)
         cv2.setMouseCallback(self.window_name, self.draw_shape)
-        frame = np.zeros((self.frame_size, self.frame_size, 3), np.uint8)
-        cv2.rectangle(
-            frame,
-            (0, self.frame_size - 20),
-            (frame.shape[1], frame.shape[0]),
-            (70, 70, 70),
-            -1,
-        )
-        cv2.rectangle(
-            frame,
-            (0, self.frame_size - 20),
-            (frame.shape[1], frame.shape[0]),
-            (70, 70, 70),
-            -1,
-        )
+        frame = np.zeros((self.FRAME_HEIGHT, self.FRAME_WIDTH, 3), np.uint8)
         center = int(frame.shape[1] / 2)
-        # 1m単位の格子線
+        # 2m単位の格子線
         lattice_x = center
-        while lattice_x < frame.shape[0]:
+        while lattice_x < frame.shape[1]:
             cv2.line(
                 frame,
                 (lattice_x, 0),
@@ -205,7 +249,7 @@ class RoiPalette(object):
                 lineType=cv2.LINE_8,
                 shift=0,
             )
-            lattice_x += int(self.frame_size / self.RANGE * self.LATTICE_INTERVAL)
+            lattice_x += int(self.FRAME_WIDTH / self.X_RANGE * self.LATTICE_INTERVAL)
         lattice_x = center
         while lattice_x > 0:
             cv2.line(
@@ -217,43 +261,25 @@ class RoiPalette(object):
                 lineType=cv2.LINE_8,
                 shift=0,
             )
-            lattice_x -= int(self.frame_size / self.RANGE * self.LATTICE_INTERVAL)
-        lattice_y = frame.shape[1]
+            lattice_x -= int(self.FRAME_WIDTH / self.X_RANGE * self.LATTICE_INTERVAL)
+        lattice_y = frame.shape[0]
         while lattice_y > 0:
             cv2.line(
                 frame,
                 (0, lattice_y),
-                (frame.shape[0], lattice_y),
+                (self.FRAME_WIDTH, lattice_y),
                 (255, 255, 255),
                 thickness=1,
                 lineType=cv2.LINE_8,
                 shift=0,
             )
-            lattice_y -= int(self.frame_size / self.RANGE * self.LATTICE_INTERVAL)
-        lattice_x = center
-        alpha = (180 - self.fov) / 2
-        max_p = frame.shape[0] - int(math.tan(math.radians(alpha)) * center)
-        fov_cnt = np.array(
-            [
-                (0, frame.shape[0]),
-                (frame.shape[1], frame.shape[0]),
-                (frame.shape[1], max_p),
-                (center, frame.shape[0]),
-                (0, max_p),
-                (0, frame.shape[0]),
-            ]
-        )
-        cv2.fillPoly(frame, [fov_cnt], color=(70, 70, 70))
-        cv2.rectangle(
-            frame,
-            (center - 10, self.frame_size - 20),
-            (center + 10, frame.shape[0]),
-            (0, 241, 255),
-            -1,
-        )
+            lattice_y -= int(self.FRAME_HEIGHT / self.Z_RANGE * self.LATTICE_INTERVAL)
         return frame
 
-    def add_tracklet_to_frame(self, frame) -> np.ndarray:
+    def add_tracklet_to_frame(self, frame: np.ndarray) -> np.ndarray:
+        """
+        bird_frame上にtrackletの情報を追加する。
+        """
         if self.tracklets is None:
             return frame
         for tracklet in self.tracklets:
@@ -265,16 +291,16 @@ class RoiPalette(object):
                     cv2.putText(
                         frame,
                         self.labels[tracklet.label],
-                        (pointX - 30, pointY + 5),
+                        (pos[0] - 30, pos[1] + 5),
                         cv2.FONT_HERSHEY_TRIPLEX,
                         0.5,
-                        (0, 255, 0),
+                        (0, 241, 255),
                     )
                 cv2.circle(
                     frame,
                     pos,
                     2,
-                    (0, 255, 0),
+                    (0, 241, 255),
                     thickness=5,
                     lineType=8,
                     shift=0,
@@ -286,7 +312,7 @@ class RoiPalette(object):
                     self.pos_to_point(rect.p1),
                     self.pos_to_point(rect.p2),
                     self.ROI_COLOR[roi_id],
-                    1,
+                    thickness=2,
                 )
             for circle in self.roi[roi_id].circle:
                 cv2.circle(
@@ -294,12 +320,96 @@ class RoiPalette(object):
                     self.pos_to_point(circle.p1),
                     int(self.pos_diff_to_point_diff(circle.radius)),
                     self.ROI_COLOR[roi_id],
-                    1,
+                    thickness=2,
                 )
         return frame
 
-    def draw_frame(self):
+    def draw_fov(self, frame: np.ndarray) -> np.ndarray:
+        """
+        AKARIのヘッドの向きに応じてFOVを描画する。
+        """
+        center = int(frame.shape[1] / 2)
+        alpha = self.fov / 2
+        yaw = self.joints.get_joint_positions()["pan"]
+        # 正方向fovの境界描画
+        ang_p = math.radians(alpha) + yaw
+        if ang_p >= 1.57:
+            pass
+        if 0.464 < ang_p < 1.57:
+            fov_cnt = np.array(
+                [
+                    (center, frame.shape[0]),
+                    (frame.shape[1], frame.shape[0]),
+                    (
+                        frame.shape[1],
+                        int(frame.shape[0] - (frame.shape[1] / (2 * math.tan(ang_p)))),
+                    ),
+                    (center, frame.shape[0]),
+                ]
+            )
+            cv2.fillPoly(frame, [fov_cnt], color=(70, 70, 70))
+        else:
+            fov_cnt = np.array(
+                [
+                    (center, frame.shape[0]),
+                    (frame.shape[1], frame.shape[0]),
+                    (frame.shape[1], 0),
+                    (center + int(frame.shape[0] * math.tan(ang_p)), 0),
+                    (center, frame.shape[0]),
+                ]
+            )
+            cv2.fillPoly(frame, [fov_cnt], color=(70, 70, 70))
+        # 負方向fovの境界描画
+        ang_n = -math.radians(alpha) + yaw
+        if ang_n <= -1.57:
+            pass
+        if -0.464 > ang_n > -1.57:
+            fov_cnt = np.array(
+                [
+                    (center, frame.shape[0]),
+                    (0, frame.shape[0]),
+                    (
+                        0,
+                        int(frame.shape[0] + (frame.shape[1] / (2 * math.tan(ang_n)))),
+                    ),
+                    (center, frame.shape[0]),
+                ]
+            )
+            cv2.fillPoly(frame, [fov_cnt], color=(70, 70, 70))
+        else:
+            fov_cnt = np.array(
+                [
+                    (center, frame.shape[0]),
+                    (0, frame.shape[0]),
+                    (0, 0),
+                    (center + int(frame.shape[0] * math.tan(ang_n)), 0),
+                    (center, frame.shape[0]),
+                ]
+            )
+            cv2.fillPoly(frame, [fov_cnt], color=(70, 70, 70))
+        # ロボット向きの描画
+        robot_tri = np.array(
+            [
+                (center, frame.shape[0]),
+                (
+                    int(center + 20 * math.sin(ang_p)),
+                    int(frame.shape[0] - 20 * math.cos(ang_p)),
+                ),
+                (
+                    int(center + 20 * math.sin(ang_n)),
+                    int(frame.shape[0] - 20 * math.cos(ang_n)),
+                ),
+            ]
+        )
+        cv2.fillPoly(frame, [robot_tri], color=(0, 241, 255))
+        return frame
+
+    def draw_frame(self) -> None:
+        """
+        bird_frameを描画する。
+        """
         frame = self.bird_eye_frame.copy()
+        frame = self.draw_fov(frame)
         frame = self.add_tracklet_to_frame(frame)
         if self.drawing:
             if self.mode == "rectangle":
@@ -308,7 +418,7 @@ class RoiPalette(object):
                     (self.ix, self.iy),
                     (self.cur_ix, self.cur_iy),
                     self.ROI_COLOR[self.cur_roi_id],
-                    2,
+                    thickness=2,
                 )
             elif self.mode == "circle":
                 cv2.circle(
@@ -320,12 +430,13 @@ class RoiPalette(object):
                         )
                     ),
                     self.ROI_COLOR[self.cur_roi_id],
-                    2,
+                    thickness=2,
                 )
+        pos = self.joints.get_joint_positions()
         cv2.putText(
             frame,
-            f"mode: {self.mode}",
-            (0, frame.shape[1] - 90),
+            f"pan: {math.degrees(pos['pan']):.1f}, tilt: {math.degrees(pos['tilt']):.1f}",
+            (0, frame.shape[0] - 70),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
             (255, 255, 255),
@@ -333,11 +444,30 @@ class RoiPalette(object):
         )
         cv2.putText(
             frame,
-            f"roi id: {self.cur_roi_id}",
-            (0, frame.shape[1] - 60),
+            f"mode: {self.mode}",
+            (0, frame.shape[0] - 50),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
             (255, 255, 255),
+            2,
+        )
+
+        cv2.putText(
+            frame,
+            "roi id: ",
+            (0, frame.shape[0] - 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (255, 255, 255),
+            2,
+        )
+        cv2.putText(
+            frame,
+            f"{self.cur_roi_id}",
+            (60, frame.shape[0] - 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            self.ROI_COLOR[self.cur_roi_id],
             2,
         )
         # マウスの現在座標を表示
@@ -345,7 +475,7 @@ class RoiPalette(object):
         cv2.putText(
             frame,
             f"x: {pos_i[0]/1000:.2f}m, z: {pos_i[1]/1000:.2f}m",
-            (0, frame.shape[1] - 30),
+            (0, frame.shape[0] - 10),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
             (255, 255, 255),
@@ -353,8 +483,10 @@ class RoiPalette(object):
         )
         cv2.imshow("palette", frame)
 
-    # マウスのコールバック関数
-    def draw_shape(self, event, x, y, flags, param):
+    def draw_shape(self, event, x, y, flags, param) -> None:
+        """
+        bird_frame上に矩形、円形を描画する。
+        """
         self.cur_ix = x
         self.cur_iy = y
         if event == cv2.EVENT_LBUTTONDOWN:
@@ -378,6 +510,9 @@ class RoiPalette(object):
         self.draw_frame()
 
     def is_point_in_roi(self, id: int, pos: Tuple[float, float]) -> bool:
+        """
+        bird_frame上の座標が指定されたroiの内部にあるかを判定して返す。
+        """
         if not 0 <= id < self.MAX_ROI_ID:
             return False
         for rect in self.roi[id].rect:
@@ -389,6 +524,181 @@ class RoiPalette(object):
         return False
 
 
+class trackData(object):
+    def __init__(self, name: str, id: int):
+        self.name: str = name
+        self.id: int = id
+        self.start_time: datetime = datetime.now()
+        self.last_time: Optional[datetime] = None
+        self.total_in_area_time: List[float] = [0.0, 0.0, 0.0]
+        self.last_in_area_time: List[Optional[datetime]] = [None, None, None]
+        self.detected_in_area_flg: List[bool] = [
+            False,
+            False,
+            False,
+        ]  # total_in_area_timeを超えた時1度だけTrueになる
+
+    def reset_detected_in_area_flg(self) -> None:
+        self.detected_in_area_flg = [False, False, False]
+
+    def add_area_time(self, area: int, time: float):
+        if area > 2:
+            return
+        self.area_time[area] += time
+
+    def lost_track(self):
+        self.last_time = datetime.now()
+
+
+class trackDataList(object):
+    def __init__(self, labels: List[str], roi_palette: RoiPalette, log_path: str):
+        self.data: List[trackData] = []
+        self.AREA_IN_TIME_THRESHOULD: float = 0.5  # この時間エリア内に検出されたらエリア内と判定
+        self.AREA_OUT_TIME_THRESHOULD: float = 1.0  # この時間エリアから外れたらエリア外にいたと判定
+        self.labels = labels
+        self.roi_palette = roi_palette
+        current_time = datetime.now()
+        self.file_name = (
+            log_path + f"/data_{current_time.strftime('%Y%m%d_%H%M%S')}.csv"
+        )
+        title = [
+            "id",
+            "name",
+            "start_time",
+            "last_time",
+            "area0_total_time",
+            "area0_last_time",
+            "area1_total_time",
+            "area1_last_time",
+            "area2_total_time",
+            "area2_last_time",
+        ]
+        with open(self.file_name, mode="w", newline="") as file:
+            writer = csv.writer(file)
+            # タイトル行を書き込み
+            writer.writerow(title)
+
+    def get_label(self, id: int) -> str:
+        if id < len(self.labels):
+            return self.labels[id]
+        else:
+            return str(id)
+
+    def is_available_tracklet(self, status: str) -> bool:
+        if status != "LOST" and status != "REMOVED":
+            return True
+        else:
+            return False
+
+    def get_formatted_time(self, time: Optional[datetime]) -> str:
+        if time is None:
+            return ""
+        else:
+            return time.strftime("%Y/%m/%d %H:%M:%S")
+
+    def create_track_data(self, tracklet: Any):
+        track_data = trackData(self.get_label(tracklet.label), tracklet.id)
+        self.data.append(track_data)
+
+    def save_track_data(self, id: int):
+        cur_track = None
+        for track in self.data:
+            if track.id == id:
+                cur_track = track
+        if track is None:
+            return
+        data_line = [
+            cur_track.id,
+            cur_track.name,
+            self.get_formatted_time(cur_track.start_time),
+            self.get_formatted_time(cur_track.last_time),
+            cur_track.total_in_area_time[0],
+            self.get_formatted_time(cur_track.last_in_area_time[0]),
+            cur_track.total_in_area_time[1],
+            self.get_formatted_time(cur_track.last_in_area_time[1]),
+            cur_track.total_in_area_time[2],
+            self.get_formatted_time(cur_track.last_in_area_time[2]),
+        ]
+        with open(self.file_name, mode="a", newline="") as file:
+            writer = csv.writer(file)
+            # タイトル行を書き込み
+            writer.writerow(data_line)
+        self.data = [x for x in self.data if x.id != id]
+
+    def update_track_data_list(self, tracklets: Any):
+        if tracklets is None:
+            return
+        # 各trackletでtrack_data_listを更新
+        for tracklet in tracklets:
+            is_available = False
+            for track_data in self.data:
+                if tracklet.id == track_data.id:
+                    is_available = True
+            if not is_available:
+                self.create_track_data(tracklet)
+            for track_data in self.data:
+                track_data.reset_detected_in_area_flg()
+                if tracklet.id == track_data.id and self.is_available_tracklet(
+                    tracklet.status.name
+                ):
+                    now = datetime.now()
+                    track_data.last_time = now
+                    for i in range(0, 3):
+                        if self.roi_palette.is_point_in_roi(
+                            i,
+                            (
+                                tracklet.spatialCoordinates.x,
+                                tracklet.spatialCoordinates.z,
+                            ),
+                        ):
+                            if track_data.last_in_area_time[i] is not None:
+                                diff = (
+                                    now - track_data.last_in_area_time[i]
+                                ).microseconds / 1000000
+                                if diff <= self.AREA_OUT_TIME_THRESHOULD:
+                                    # AREA_IN_TIME_THRESHOULDを超える初回のみdetected_in_area_flgを立てる
+                                    if (
+                                        track_data.total_in_area_time[i]
+                                        < self.AREA_IN_TIME_THRESHOULD
+                                        and (track_data.total_in_area_time[i] + diff)
+                                        >= self.AREA_IN_TIME_THRESHOULD
+                                    ):
+                                        track_data.detected_in_area_flg[i] = True
+                                    track_data.total_in_area_time[i] += diff
+                            track_data.last_in_area_time[i] = now
+        # trackletsから消えたdataをtrack_data_listから削除
+        for track_data in self.data:
+            is_available = False
+            for tracklet in tracklets:
+                if track_data.id == tracklet.id:
+                    is_available = True
+            if not is_available:
+                self.save_track_data(track_data.id)
+
+    def debug_track_data_list(self):
+        for track_data in self.data:
+            print(f"name: {track_data.name}")
+            print(f"id: {track_data.id}")
+            print(f"start_time: {self.get_formatted_time(track_data.start_time)}")
+            print(f"last_time: {self.get_formatted_time(track_data.last_time)}")
+            print("total_time:")
+            print(f"    area0: {track_data.total_in_area_time[0]}")
+            print(f"    area1: {track_data.total_in_area_time[1]}")
+            print(f"    area2: {track_data.total_in_area_time[2]}")
+            print("last_time:")
+            print(
+                f"    area0: {self.get_formatted_time(track_data.last_in_area_time[0])}"
+            )
+            print(
+                f"    area1: {self.get_formatted_time(track_data.last_in_area_time[1])}"
+            )
+            print(
+                f"    area2: {self.get_formatted_time(track_data.last_in_area_time[2])}"
+            )
+            print("-------------------------------")
+        print("===============================")
+
+
 class OakdTrackingYoloWithPalette(OakdTrackingYolo):
     def display_frame(
         self,
@@ -397,6 +707,9 @@ class OakdTrackingYoloWithPalette(OakdTrackingYolo):
         tracklets: List[Any],
         roi_palette: RoiPalette,
     ) -> None:
+        """
+        roi_paletteの情報を元に、認識結果の枠の色を変えて描画する。
+        """
         if frame is not None:
             frame = cv2.resize(
                 frame,
@@ -405,9 +718,6 @@ class OakdTrackingYoloWithPalette(OakdTrackingYolo):
                     int(frame.shape[0] * DISPLAY_WINDOW_SIZE_RATE),
                 ),
             )
-            height = int(frame.shape[1] * 9 / 16)
-            width = frame.shape[1]
-            brank_height = width - height
             if tracklets is not None:
                 for tracklet in tracklets:
                     if tracklet.status.name == "TRACKED":
@@ -418,7 +728,7 @@ class OakdTrackingYoloWithPalette(OakdTrackingYolo):
                         y2 = int(roi.bottomRight().y)
                         try:
                             label = self.labels[tracklet.label]
-                        except:
+                        except BaseException:
                             label = tracklet.label
                         self.text.put_text(frame, str(label), (x1 + 10, y1 + 20))
                         self.text.put_text(
@@ -465,7 +775,7 @@ class OakdTrackingYoloWithPalette(OakdTrackingYolo):
             cv2.putText(
                 frame,
                 "NN fps: {:.2f}".format(
-                    self.counter / (time.monotonic() - self.startTime)
+                    self.counter / (time.monotonic() - self.start_time)
                 ),
                 (2, frame.shape[0] - 4),
                 cv2.FONT_HERSHEY_TRIPLEX,
