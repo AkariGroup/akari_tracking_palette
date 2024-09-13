@@ -775,7 +775,7 @@ class OakdTrackingYoloWithPalette(OakdTrackingYolo):
             cv2.putText(
                 frame,
                 "NN fps: {:.2f}".format(
-                    self.counter / (time.monotonic() - self.startTime)
+                    self.counter / (time.monotonic() - self.start_time)
                 ),
                 (2, frame.shape[0] - 4),
                 cv2.FONT_HERSHEY_TRIPLEX,
