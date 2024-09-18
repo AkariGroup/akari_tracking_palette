@@ -1,4 +1,3 @@
-
 [submodule "lib/akari_yolo_lib"]
 	path = lib/akari_yolo_lib
 	url = https://github.com/AkariGroup/akari_yolo_lib.git
